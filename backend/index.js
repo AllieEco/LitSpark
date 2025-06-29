@@ -8,6 +8,8 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 const User = require('./models/User');
 const Book = require('./models/Book');
 const Message = require('./models/Message');
@@ -16,14 +18,96 @@ const bcrypt = require('bcryptjs');
 
 // Chargement des variables d'environnement
 dotenv.config();
-console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
+console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? 'Configuré' : 'MANQUANT');
+console.log('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? 'Configuré' : 'MANQUANT');
 
 const app = express();
+const server = createServer(app);
+
+// Configuration Socket.IO
+const io = new Server(server, {
+  cors: {
+    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    credentials: true,
+    methods: ['GET', 'POST']
+  }
+});
+
+// Stockage des connexions utilisateurs
+const userSockets = new Map();
+
+// Gestion des connexions Socket.IO
+io.on('connection', (socket) => {
+  console.log('Nouvelle connexion Socket.IO:', socket.id);
+
+  // Authentification de l'utilisateur
+  socket.on('authenticate', async (userId) => {
+    try {
+      const user = await User.findById(userId);
+      if (user) {
+        userSockets.set(userId, socket.id);
+        socket.userId = userId;
+        socket.join(`user_${userId}`);
+        console.log(`Utilisateur ${user.username} connecté via Socket.IO`);
+      }
+    } catch (error) {
+      console.error('Erreur d\'authentification Socket.IO:', error);
+    }
+  });
+
+  // Rejoindre une conversation
+  socket.on('join_conversation', (conversationId) => {
+    socket.join(`conversation_${conversationId}`);
+    console.log(`Socket ${socket.id} a rejoint la conversation ${conversationId}`);
+  });
+
+  // Quitter une conversation
+  socket.on('leave_conversation', (conversationId) => {
+    socket.leave(`conversation_${conversationId}`);
+    console.log(`Socket ${socket.id} a quitté la conversation ${conversationId}`);
+  });
+
+  // Marquer les messages comme lus
+  socket.on('mark_as_read', async (data) => {
+    try {
+      const { conversationId, userId } = data;
+      
+      // Marquer les messages comme lus dans la base de données
+      await Message.updateMany(
+        { 
+          conversationId: conversationId,
+          sender: { $ne: userId },
+          isRead: false 
+        },
+        { isRead: true }
+      );
+
+      // Notifier les autres participants
+      socket.to(`conversation_${conversationId}`).emit('messages_read', {
+        conversationId,
+        readBy: userId
+      });
+    } catch (error) {
+      console.error('Erreur lors du marquage comme lu:', error);
+    }
+  });
+
+  // Déconnexion
+  socket.on('disconnect', () => {
+    if (socket.userId) {
+      userSockets.delete(socket.userId);
+      console.log(`Utilisateur ${socket.userId} déconnecté de Socket.IO`);
+    }
+    console.log('Déconnexion Socket.IO:', socket.id);
+  });
+});
+
 const corsOptions = {
-  origin: 'http://localhost:5173',
+  origin: ['http://localhost:5173', 'http://localhost:3000'],
   credentials: true,
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-  allowedHeaders: 'Content-Type,Authorization'
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Set-Cookie']
 };
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
@@ -34,11 +118,14 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'secret',
   resave: false,
-  saveUninitialized: true,
+  saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000 // 24 heures
-  }
+    secure: false, // Mettre à false pour le développement local
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000, // 24 heures
+    sameSite: 'lax'
+  },
+  name: 'connect.sid'
 }));
 app.use(passport.initialize());
 app.use(passport.session());
@@ -47,6 +134,10 @@ app.use(passport.session());
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/pret_livre', {
   useNewUrlParser: true,
   useUnifiedTopology: true
+}).then(() => {
+  console.log('Connecté à MongoDB');
+}).catch(err => {
+  console.error('Erreur de connexion MongoDB:', err);
 });
 
 passport.use(new GoogleStrategy({
@@ -55,6 +146,7 @@ passport.use(new GoogleStrategy({
   callbackURL: '/auth/google/callback',
 }, async (accessToken, refreshToken, profile, done) => {
   try {
+    console.log('Profil Google reçu:', profile.id, profile.emails[0].value);
     let user = await User.findOne({ googleId: profile.id });
     
     if (!user) {
@@ -64,6 +156,7 @@ passport.use(new GoogleStrategy({
         // Si l'utilisateur existe déjà avec un compte classique, on lie son compte Google
         existingUser.googleId = profile.id;
         await existingUser.save();
+        console.log('Compte Google lié à un utilisateur existant');
         return done(null, existingUser);
       }
 
@@ -75,9 +168,11 @@ passport.use(new GoogleStrategy({
         nom: profile.name.familyName,
         prenom: profile.name.givenName
       });
+      console.log('Nouveau compte Google créé');
     }
     done(null, user);
   } catch (err) {
+    console.error('Erreur dans la stratégie Google:', err);
     done(err, null);
   }
 }));
@@ -806,9 +901,9 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
       return res.status(404).json({ message: 'Conversation non trouvée' });
     }
 
-    // Créer le nouveau message
+    // Créer le message
     const newMessage = new Message({
-      conversationId: req.params.id,
+      conversationId: conversation._id,
       sender: req.user._id,
       content: content.trim()
     });
@@ -818,14 +913,34 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
     // Mettre à jour la conversation
     conversation.lastMessage = newMessage._id;
     conversation.lastMessageDate = new Date();
-    
-    // Incrémenter le compteur de non lus pour l'autre participant
-    const otherParticipant = conversation.getOtherParticipant(req.user._id);
-    if (otherParticipant) {
-      conversation.incrementUnreadCount(otherParticipant);
-    }
-
+    conversation.incrementUnreadCount(conversation.getOtherParticipant(req.user._id));
     await conversation.save();
+
+    // Préparer les données du message pour Socket.IO
+    const messageData = {
+      id: newMessage._id,
+      conversationId: conversation._id,
+      content: newMessage.content,
+      sender: req.user._id,
+      senderUsername: req.user.username,
+      timestamp: new Date(newMessage.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: newMessage.createdAt
+    };
+
+    // Émettre le nouveau message via Socket.IO
+    io.to(`conversation_${conversation._id}`).emit('new_message', messageData);
+
+    // Notifier le destinataire de la nouvelle conversation
+    io.to(`user_${conversation.getOtherParticipant(req.user._id)}`).emit('new_conversation', {
+      conversationId: conversation._id,
+      sender: {
+        id: req.user._id,
+        username: req.user.username
+      },
+      lastMessage: messageData,
+      bookInfo: conversation.bookInfo,
+      unreadCount: 1
+    });
 
     res.json({
       id: newMessage._id,
@@ -930,6 +1045,32 @@ app.post('/api/conversations/new', async (req, res) => {
     conversation.incrementUnreadCount(recipientUser._id);
     await conversation.save();
 
+    // Préparer les données du message pour Socket.IO
+    const messageData = {
+      id: newMessage._id,
+      conversationId: conversation._id,
+      content: newMessage.content,
+      sender: req.user._id,
+      senderUsername: req.user.username,
+      timestamp: new Date(newMessage.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: newMessage.createdAt
+    };
+
+    // Émettre le nouveau message via Socket.IO
+    io.to(`conversation_${conversation._id}`).emit('new_message', messageData);
+
+    // Notifier le destinataire de la nouvelle conversation
+    io.to(`user_${recipientUser._id}`).emit('new_conversation', {
+      conversationId: conversation._id,
+      sender: {
+        id: req.user._id,
+        username: req.user.username
+      },
+      lastMessage: messageData,
+      bookInfo: conversation.bookInfo,
+      unreadCount: 1
+    });
+
     res.json({ message: 'Message envoyé avec succès' });
   } catch (error) {
     console.error('Erreur lors de la création de la conversation:', error);
@@ -1019,7 +1160,21 @@ app.delete('/api/conversations/:id', async (req, res) => {
   }
 });
 
+// Route de test pour vérifier la configuration
+app.get('/api/test-google-config', (req, res) => {
+  const config = {
+    hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+    hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+    hasSessionSecret: !!process.env.SESSION_SECRET,
+    mongoUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/pret_livre',
+    nodeEnv: process.env.NODE_ENV || 'development'
+  };
+  
+  console.log('Configuration Google OAuth:', config);
+  res.json(config);
+});
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Serveur backend démarré sur le port ${PORT}`);
 }); 

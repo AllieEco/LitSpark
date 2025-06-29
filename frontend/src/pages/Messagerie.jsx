@@ -4,6 +4,8 @@ import styled, { keyframes } from 'styled-components';
 import Logo from '../components/Logo';
 import Button from '../components/Button';
 import { useTheme } from '../theme/ThemeContext';
+import { useSocket } from '../utils/useSocket';
+import MessageNotification from '../components/MessageNotification';
 
 // Animations
 const fadeIn = keyframes`
@@ -165,6 +167,24 @@ const ConversationTime = styled.div`
   color: ${props => props.theme.text};
   opacity: 0.6;
   font-weight: 500;
+`;
+
+const ConnectionStatus = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: ${props => props.isConnected ? '#4CAF50' : '#ff6b6b'};
+  
+  &::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: ${props => props.isConnected ? '#4CAF50' : '#ff6b6b'};
+    animation: ${props => props.isConnected ? pulse : 'none'} 2s infinite;
+  }
 `;
 
 const ChatArea = styled.div`
@@ -681,9 +701,24 @@ export default function Messagerie() {
   const [selectedBookInfo, setSelectedBookInfo] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingConversation, setDeletingConversation] = useState(false);
+  const [notification, setNotification] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
   const { theme } = useTheme();
+  
+  // Hook WebSocket
+  const { 
+    socket, 
+    isConnected, 
+    joinConversation, 
+    leaveConversation, 
+    markAsRead, 
+    onNewMessage, 
+    onConversationUpdated, 
+    onNewConversation, 
+    onMessagesRead, 
+    cleanup 
+  } = useSocket(user?._id);
 
   useEffect(() => {
     const fetchUser = () => {
@@ -704,6 +739,63 @@ export default function Messagerie() {
     };
     fetchUser();
   }, [navigate]);
+
+  // Configuration des événements WebSocket
+  useEffect(() => {
+    if (!isConnected || !user) return;
+
+    // Écouter les nouveaux messages
+    onNewMessage((messageData) => {
+      console.log('Nouveau message reçu:', messageData);
+      
+      // Si le message est pour la conversation actuellement sélectionnée
+      if (selectedConversation && messageData.conversationId === selectedConversation.id) {
+        const newMessage = {
+          id: messageData.id,
+          content: messageData.content,
+          isOwn: messageData.sender === user._id,
+          timestamp: messageData.timestamp
+        };
+        setMessages(prev => [...prev, newMessage]);
+        
+        // Marquer automatiquement comme lu si c'est la conversation active
+        markAsRead(messageData.conversationId);
+      } else {
+        // Afficher une notification si le message n'est pas pour la conversation active
+        // et si ce n'est pas notre propre message
+        if (messageData.sender !== user._id) {
+          setNotification(messageData);
+        }
+      }
+      
+      // Mettre à jour la liste des conversations
+      loadConversations();
+    });
+
+    // Écouter les mises à jour de conversation
+    onConversationUpdated((data) => {
+      console.log('Conversation mise à jour:', data);
+      loadConversations();
+    });
+
+    // Écouter les nouvelles conversations
+    onNewConversation((data) => {
+      console.log('Nouvelle conversation reçue:', data);
+      loadConversations();
+    });
+
+    // Écouter les messages marqués comme lus
+    onMessagesRead((data) => {
+      console.log('Messages marqués comme lus:', data);
+      if (selectedConversation && data.conversationId === selectedConversation.id) {
+        // Mettre à jour l'état des messages dans la conversation active
+        setMessages(prev => prev.map(msg => ({ ...msg, isRead: true })));
+      }
+    });
+
+    // Nettoyer les listeners à la déconnexion
+    return cleanup;
+  }, [isConnected, user, selectedConversation, onNewMessage, onConversationUpdated, onNewConversation, onMessagesRead, markAsRead, cleanup]);
 
   // Détecter si on vient d'une page de livre pour ouvrir automatiquement le modal
   useEffect(() => {
@@ -747,10 +839,16 @@ Merci !`;
   };
 
   const handleConversationSelect = async (conversation) => {
+    // Quitter la conversation précédente si elle existe
+    if (selectedConversation) {
+      leaveConversation(selectedConversation.id);
+    }
+
     setSelectedConversation(conversation);
     console.log('Conversation sélectionnée:', conversation);
     console.log('BookInfo de la conversation:', conversation.bookInfo);
     setSelectedBookInfo(conversation.bookInfo || null);
+    
     try {
       const response = await fetch(`http://localhost:5000/api/conversations/${conversation.id}/messages`, {
         credentials: 'include'
@@ -758,11 +856,19 @@ Merci !`;
       if (response.ok) {
         const data = await response.json();
         setMessages(data.messages || []);
+        
+        // Rejoindre la nouvelle conversation via WebSocket
+        joinConversation(conversation.id);
+        
         // Marquer la conversation comme lue
         await fetch(`http://localhost:5000/api/conversations/${conversation.id}/read`, {
           method: 'PUT',
           credentials: 'include'
         });
+        
+        // Marquer aussi via WebSocket
+        markAsRead(conversation.id);
+        
         loadConversations(); // Recharger pour mettre à jour les indicateurs
       }
     } catch (error) {
@@ -933,8 +1039,12 @@ Merci !`;
       <Container theme={theme}>
         <Header theme={theme}>
           <Title theme={theme}>
-            💬 Messagerie
+            <Logo size="2.5rem" />
+            Messagerie
           </Title>
+          <ConnectionStatus isConnected={isConnected} theme={theme}>
+            {isConnected ? 'Connecté en temps réel' : 'Déconnecté'}
+          </ConnectionStatus>
         </Header>
         
         <MessagerieContainer>
@@ -1157,6 +1267,15 @@ Merci !`;
             </div>
           </ModalContent>
         </Modal>
+      )}
+
+      {/* Notification de nouveau message */}
+      {notification && (
+        <MessageNotification
+          message={notification}
+          onClose={() => setNotification(null)}
+          theme={theme}
+        />
       )}
     </Wrapper>
   );

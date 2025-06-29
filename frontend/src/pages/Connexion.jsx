@@ -197,11 +197,23 @@ function Connexion() {
 
   const handleGoogleLogin = (e) => {
     e.preventDefault();
-    const logoutWindow = window.open('https://accounts.google.com/Logout', '_blank', 'width=500,height=600');
-    setTimeout(() => {
-      if (logoutWindow) logoutWindow.close();
-      window.location.href = 'http://localhost:5000/auth/google';
-    }, 1500);
+    console.log('Tentative de connexion Google...');
+    
+    // Vérifier si le serveur backend est accessible
+    fetch('http://localhost:5000/api/user', {
+      credentials: 'include'
+    }).then(() => {
+      console.log('Serveur backend accessible');
+      const logoutWindow = window.open('https://accounts.google.com/Logout', '_blank', 'width=500,height=600');
+      setTimeout(() => {
+        if (logoutWindow) logoutWindow.close();
+        console.log('Redirection vers Google OAuth...');
+        window.location.href = 'http://localhost:5000/auth/google';
+      }, 1500);
+    }).catch(err => {
+      console.error('Erreur de connexion au serveur:', err);
+      setError('Impossible de se connecter au serveur. Vérifiez que le backend est démarré.');
+    });
   };
 
   if (user) {
