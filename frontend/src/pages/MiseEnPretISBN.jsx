@@ -699,72 +699,158 @@ export default function MiseEnPretISBN() {
   };
 
   const extractIsbnFromText = (text) => {
-    console.log('Recherche d\'ISBN dans le texte:', text);
+    console.log('=== EXTRACTION ISBN ===');
+    console.log('Texte original:', text);
     
-    // Nettoyer le texte (enlever les caractères parasites)
-    const cleanText = text.replace(/[^\d\s-]/g, ' ');
-    
-    // Expressions régulières pour différents formats d'ISBN
-    const isbnPatterns = [
-      // ISBN-13 avec tirets : 978-2-123456-78-9
-      /978[\s-]?\d[\s-]?\d{6}[\s-]?\d{2}[\s-]?\d/g,
-      /979[\s-]?\d[\s-]?\d{6}[\s-]?\d{2}[\s-]?\d/g,
-      // ISBN-10 avec tirets : 2-123456-78-9
-      /(?<!\d)\d[\s-]?\d{6}[\s-]?\d{2}[\s-]?\d(?!\d)/g,
-      // ISBN sans format spécifique (10 ou 13 chiffres consécutifs)
-      /(?<!\d)(978|979)?\d{10,13}(?!\d)/g,
-      // Format plus flexible pour capturer des ISBN mal formatés
-      /(?:\d[\s-]*){9,13}\d/g
-    ];
-    
-    let bestMatch = null;
-    let bestScore = 0;
-    
-    for (const pattern of isbnPatterns) {
-      const matches = cleanText.match(pattern);
-      if (matches) {
-        for (const match of matches) {
-          const cleanMatch = match.replace(/[\s-]/g, '');
-          
-          // Vérifier la longueur et donner un score
-          let score = 0;
-          if (cleanMatch.length === 13 && (cleanMatch.startsWith('978') || cleanMatch.startsWith('979'))) {
-            score = 100; // ISBN-13 parfait
-          } else if (cleanMatch.length === 10) {
-            score = 90; // ISBN-10 parfait
-          } else if (cleanMatch.length >= 10 && cleanMatch.length <= 13) {
-            score = 70; // Longueur acceptable
-          } else {
-            continue; // Ignorer les matches trop courts ou trop longs
+    // 1. APPROCHE SIMPLE - chercher des séquences de chiffres
+    const simpleExtract = (inputText) => {
+      console.log('--- Approche simple ---');
+      
+      // Nettoyer et corriger les erreurs OCR communes
+      let cleaned = inputText
+        .toUpperCase()
+        .replace(/[O]/g, '0')
+        .replace(/[IL|]/g, '1')
+        .replace(/[S]/g, '5')
+        .replace(/[B]/g, '8')
+        .replace(/[G]/g, '6')
+        .replace(/[Z]/g, '2')
+        .replace(/[T]/g, '7');
+      
+      console.log('Texte nettoyé:', cleaned);
+      
+      // Chercher toutes les séquences de chiffres
+      const digitGroups = cleaned.match(/\d+/g) || [];
+      console.log('Groupes de chiffres trouvés:', digitGroups);
+      
+      for (const group of digitGroups) {
+        // ISBN-13 (13 chiffres)
+        if (group.length === 13 && (group.startsWith('978') || group.startsWith('979'))) {
+          console.log('ISBN-13 potentiel trouvé:', group);
+          return group;
+        }
+        // ISBN-10 (10 chiffres)
+        if (group.length === 10) {
+          console.log('ISBN-10 potentiel trouvé:', group);
+          return group;
+        }
+      }
+      
+      // Essayer de concatener des groupes adjacents
+      for (let i = 0; i < digitGroups.length - 1; i++) {
+        const combined = digitGroups[i] + digitGroups[i + 1];
+        if (combined.length >= 10 && combined.length <= 13) {
+          if (combined.length === 13 && (combined.startsWith('978') || combined.startsWith('979'))) {
+            console.log('ISBN-13 combiné trouvé:', combined);
+            return combined;
           }
-          
-          // Bonus si le match contient des chiffres séquentiels logiques
-          if (/^\d+$/.test(cleanMatch)) {
-            score += 10;
-          }
-          
-          if (score > bestScore) {
-            bestScore = score;
-            bestMatch = cleanMatch;
+          if (combined.length === 10) {
+            console.log('ISBN-10 combiné trouvé:', combined);
+            return combined;
           }
         }
       }
-    }
-    
-    if (bestMatch) {
-      console.log('ISBN trouvé:', bestMatch, 'Score:', bestScore);
       
-      // Validation finale de l'ISBN
-      if (bestMatch.length === 13 && (bestMatch.startsWith('978') || bestMatch.startsWith('979'))) {
-        return bestMatch;
-      } else if (bestMatch.length === 10) {
-        return bestMatch;
-      } else if (bestMatch.length >= 10) {
-        // Tronquer ou ajuster si nécessaire
-        return bestMatch.substring(0, 13);
+      return null;
+    };
+    
+    // 2. APPROCHE PAR PATTERNS - expressions régulières
+    const patternExtract = (inputText) => {
+      console.log('--- Approche par patterns ---');
+      
+      let processedText = inputText
+        .replace(/[OoQ]/gi, '0')
+        .replace(/[Il|]/gi, '1')
+        .replace(/[Ss]/gi, '5')
+        .replace(/[Bb]/gi, '8')
+        .replace(/[Gg]/gi, '6')
+        .replace(/[Zz]/gi, '2');
+      
+      const patterns = [
+        // Après le mot ISBN
+        /ISBN[\s\-:]*(\d{13})/gi,
+        /ISBN[\s\-:]*(\d{10})/gi,
+        
+        // 978 ou 979 au début
+        /(978\d{10})/g,
+        /(979\d{10})/g,
+        
+        // 13 chiffres avec espaces/tirets
+        /(978[\s\-]*\d[\s\-]*\d{8}[\s\-]*\d)/g,
+        /(979[\s\-]*\d[\s\-]*\d{8}[\s\-]*\d)/g,
+        
+        // 10 chiffres consécutifs
+        /(\d{10})/g,
+        
+        // 13 chiffres consécutifs
+        /(\d{13})/g
+      ];
+      
+      for (const pattern of patterns) {
+        const matches = processedText.match(pattern);
+        if (matches) {
+          for (const match of matches) {
+            const cleanMatch = match.replace(/[^\d]/g, '');
+            console.log('Pattern match:', match, '-> nettoyé:', cleanMatch);
+            
+            if (cleanMatch.length === 13 && (cleanMatch.startsWith('978') || cleanMatch.startsWith('979'))) {
+              return cleanMatch;
+            }
+            if (cleanMatch.length === 10) {
+              return cleanMatch;
+            }
+          }
+        }
       }
+      
+      return null;
+    };
+    
+    // 3. APPROCHE BRUTALE - tous les chiffres dans l'ordre
+    const bruteForceExtract = (inputText) => {
+      console.log('--- Approche brute force ---');
+      
+      // Extraire tous les chiffres dans l'ordre
+      const allDigits = inputText.replace(/[^\d]/g, '');
+      console.log('Tous les chiffres:', allDigits);
+      
+      if (allDigits.length >= 10) {
+        // Essayer les 13 premiers chiffres si ça commence par 978/979
+        if (allDigits.length >= 13 && (allDigits.startsWith('978') || allDigits.startsWith('979'))) {
+          const isbn13 = allDigits.substring(0, 13);
+          console.log('ISBN-13 brute force:', isbn13);
+          return isbn13;
+        }
+        
+        // Essayer les 10 premiers chiffres
+        const isbn10 = allDigits.substring(0, 10);
+        console.log('ISBN-10 brute force:', isbn10);
+        return isbn10;
+      }
+      
+      return null;
+    };
+    
+    // Tester les différentes approches
+    let result = simpleExtract(text);
+    if (result) {
+      console.log('✅ ISBN trouvé avec approche simple:', result);
+      return result;
     }
     
+    result = patternExtract(text);
+    if (result) {
+      console.log('✅ ISBN trouvé avec approche pattern:', result);
+      return result;
+    }
+    
+    result = bruteForceExtract(text);
+    if (result) {
+      console.log('✅ ISBN trouvé avec approche brute force:', result);
+      return result;
+    }
+    
+    console.log('❌ Aucun ISBN trouvé avec toutes les approches');
     return null;
   };
 
@@ -899,6 +985,7 @@ export default function MiseEnPretISBN() {
   const processImage = async (imageSrc) => {
     setIsProcessing(true);
     try {
+      console.log('=== DÉBUT PROCESSIMAGE ===');
       console.log('Début du preprocessing de l\'image...');
       
       // Préprocessing de l'image pour améliorer l'OCR
@@ -906,51 +993,146 @@ export default function MiseEnPretISBN() {
       
       console.log('Preprocessing terminé, début de l\'OCR...');
       
-      // Configuration optimisée de Tesseract pour la reconnaissance d'ISBN
-      const worker = await createWorker('fra', 1, {
+      // APPROCHE 1: Configuration très basique et permissive
+      console.log('--- TENTATIVE 1: Configuration basique ---');
+      const worker1 = await createWorker('eng', 1, {
         logger: m => {
           if (m.status === 'recognizing text') {
-            console.log(`Progression OCR: ${Math.round(m.progress * 100)}%`);
+            console.log(`Tentative 1 - Progression: ${Math.round(m.progress * 100)}%`);
           }
         }
       });
       
-      // Configuration des paramètres Tesseract pour optimiser la reconnaissance de texte
-      await worker.setParameters({
-        tessedit_char_whitelist: '0123456789- ',  // Limiter aux caractères d'ISBN
-        tessedit_pageseg_mode: '6',  // Assume uniform block of text
-        tessedit_ocr_engine_mode: '1',  // LSTM OCR Engine seulement
+      // Configuration très permissive
+      await worker1.setParameters({
+        tessedit_pageseg_mode: '6',  // Bloc de texte uniforme
+        tessedit_ocr_engine_mode: '1'  // LSTM seulement
       });
       
-      const { data: { text, confidence } } = await worker.recognize(preprocessedImage);
-      await worker.terminate();
+      let { data: { text: text1, confidence: conf1 } } = await worker1.recognize(preprocessedImage);
+      await worker1.terminate();
       
-      console.log(`Texte reconnu (confiance: ${confidence}%):`, text);
+      console.log(`Tentative 1 - Confiance: ${conf1}% - Texte:`, text1);
       
-      const extractedIsbn = extractIsbnFromText(text);
+      let extractedIsbn = extractIsbnFromText(text1);
       if (extractedIsbn) {
-        console.log('ISBN extrait:', extractedIsbn);
+        console.log('✅ ISBN trouvé avec tentative 1:', extractedIsbn);
         setIsbn(extractedIsbn);
         setShowCamera(false);
-      } else {
-        // Tentative avec moins de restrictions si aucun ISBN n'est trouvé
-        console.log('Aucun ISBN trouvé avec les restrictions, nouvelle tentative...');
-        
-        const fallbackWorker = await createWorker('fra');
-        const { data: { text: fallbackText } } = await fallbackWorker.recognize(preprocessedImage);
-        await fallbackWorker.terminate();
-        
-        console.log('Texte de secours:', fallbackText);
-        const fallbackIsbn = extractIsbnFromText(fallbackText);
-        
-        if (fallbackIsbn) {
-          console.log('ISBN extrait en secours:', fallbackIsbn);
-          setIsbn(fallbackIsbn);
-          setShowCamera(false);
-        } else {
-          alert('Aucun ISBN n\'a été détecté. Conseils :\n• Assurez-vous que l\'ISBN est bien visible\n• Vérifiez l\'éclairage\n• Évitez les reflets\n• Tenez l\'appareil stable');
-        }
+        setIsProcessing(false);
+        return;
       }
+      
+      // APPROCHE 2: Avec whitelist de caractères
+      console.log('--- TENTATIVE 2: Avec whitelist ---');
+      const worker2 = await createWorker('eng', 1, {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            console.log(`Tentative 2 - Progression: ${Math.round(m.progress * 100)}%`);
+          }
+        }
+      });
+      
+      await worker2.setParameters({
+        tessedit_char_whitelist: '0123456789-XISBN: OILSBGZTislbgzt',
+        tessedit_pageseg_mode: '8',  // Traiter comme un seul mot
+        tessedit_ocr_engine_mode: '1'
+      });
+      
+      let { data: { text: text2, confidence: conf2 } } = await worker2.recognize(preprocessedImage);
+      await worker2.terminate();
+      
+      console.log(`Tentative 2 - Confiance: ${conf2}% - Texte:`, text2);
+      
+      extractedIsbn = extractIsbnFromText(text2);
+      if (extractedIsbn) {
+        console.log('✅ ISBN trouvé avec tentative 2:', extractedIsbn);
+        setIsbn(extractedIsbn);
+        setShowCamera(false);
+        setIsProcessing(false);
+        return;
+      }
+      
+      // APPROCHE 3: Mode ligne simple
+      console.log('--- TENTATIVE 3: Mode ligne ---');
+      const worker3 = await createWorker('eng', 1, {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            console.log(`Tentative 3 - Progression: ${Math.round(m.progress * 100)}%`);
+          }
+        }
+      });
+      
+      await worker3.setParameters({
+        tessedit_char_whitelist: '0123456789-XISBN ',
+        tessedit_pageseg_mode: '7',  // Ligne simple
+        tessedit_ocr_engine_mode: '1'
+      });
+      
+      let { data: { text: text3, confidence: conf3 } } = await worker3.recognize(preprocessedImage);
+      await worker3.terminate();
+      
+      console.log(`Tentative 3 - Confiance: ${conf3}% - Texte:`, text3);
+      
+      extractedIsbn = extractIsbnFromText(text3);
+      if (extractedIsbn) {
+        console.log('✅ ISBN trouvé avec tentative 3:', extractedIsbn);
+        setIsbn(extractedIsbn);
+        setShowCamera(false);
+        setIsProcessing(false);
+        return;
+      }
+      
+      // APPROCHE 4: Image originale sans preprocessing
+      console.log('--- TENTATIVE 4: Image originale ---');
+      const worker4 = await createWorker('eng', 1, {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            console.log(`Tentative 4 - Progression: ${Math.round(m.progress * 100)}%`);
+          }
+        }
+      });
+      
+      await worker4.setParameters({
+        tessedit_pageseg_mode: '6',
+        tesseract_ocr_engine_mode: '1'
+      });
+      
+      let { data: { text: text4, confidence: conf4 } } = await worker4.recognize(imageSrc);
+      await worker4.terminate();
+      
+      console.log(`Tentative 4 - Confiance: ${conf4}% - Texte:`, text4);
+      
+      extractedIsbn = extractIsbnFromText(text4);
+      if (extractedIsbn) {
+        console.log('✅ ISBN trouvé avec tentative 4:', extractedIsbn);
+        setIsbn(extractedIsbn);
+        setShowCamera(false);
+        setIsProcessing(false);
+        return;
+      }
+      
+      // Aucune tentative n'a fonctionné
+      console.log('❌ Toutes les tentatives ont échoué');
+      console.log('Textes collectés:');
+      console.log('1:', text1);
+      console.log('2:', text2);
+      console.log('3:', text3);
+      console.log('4:', text4);
+      
+      alert(`Aucun ISBN détecté. 
+      
+Textes reconnus:
+• Tentative 1 (${conf1}%): ${text1.substring(0, 50)}...
+• Tentative 2 (${conf2}%): ${text2.substring(0, 50)}...
+• Tentative 3 (${conf3}%): ${text3.substring(0, 50)}...
+• Tentative 4 (${conf4}%): ${text4.substring(0, 50)}...
+
+Conseils:
+• Assurez-vous que l'ISBN est bien net et lisible
+• Essayez avec un meilleur éclairage
+• Évitez les reflets sur la page`);
+      
     } catch (error) {
       console.error('Erreur lors de la reconnaissance de l\'ISBN:', error);
       alert('Une erreur est survenue lors de la reconnaissance de l\'ISBN. Veuillez réessayer.');
@@ -970,36 +1152,73 @@ export default function MiseEnPretISBN() {
   };
 
   const handleFileUpload = async (event) => {
+    console.log('handleFileUpload appelé');
     const file = event.target.files[0];
-    if (!file) return;
+    if (!file) {
+      console.log('Aucun fichier sélectionné');
+      return;
+    }
+
+    console.log('Fichier sélectionné:', file.name, 'Type:', file.type, 'Taille:', file.size);
+
+    // Reset du champ file pour permettre de sélectionner le même fichier plusieurs fois
+    event.target.value = '';
 
     // Vérifier le type de fichier
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
     if (!allowedTypes.includes(file.type)) {
+      console.log('Type de fichier non supporté:', file.type);
       alert('Format de fichier non supporté. Veuillez utiliser une image JPEG, PNG ou WebP.');
       return;
     }
 
-    setIsProcessing(true);
+    // Vérifier la taille du fichier (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      console.log('Fichier trop volumineux:', file.size);
+      alert('Le fichier est trop volumineux. Taille maximum : 10MB');
+      return;
+    }
+
+    console.log('Début de la lecture du fichier...');
+
     try {
       // Convertir le fichier en base64
       const reader = new FileReader();
+      
       reader.onload = async (e) => {
-        const imageData = e.target.result;
         try {
-          // Utiliser la même fonction processImage pour bénéficier du preprocessing
+          console.log('FileReader onload déclenché');
+          const imageData = e.target.result;
+          console.log('Image data length:', imageData ? imageData.length : 'null');
+          console.log('Début du traitement OCR...');
+          
+          // Appeler processImage qui gère déjà l'état isProcessing
           await processImage(imageData);
+          console.log('processImage terminé');
         } catch (error) {
-          console.error('Erreur lors de la reconnaissance de l\'ISBN:', error);
-          alert('Une erreur est survenue lors de la reconnaissance de l\'ISBN. Veuillez réessayer.');
-          setIsProcessing(false);
+          console.error('Erreur dans reader.onload:', error);
+          alert('Erreur lors du traitement de l\'image: ' + error.message);
         }
       };
+      
+      reader.onerror = (error) => {
+        console.error('Erreur FileReader:', error);
+        alert('Erreur lors de la lecture du fichier. Veuillez réessayer.');
+      };
+
+      reader.onloadstart = () => {
+        console.log('Début de lecture du fichier...');
+      };
+
+      reader.onloadend = () => {
+        console.log('Fin de lecture du fichier');
+      };
+      
+      console.log('Lancement de readAsDataURL...');
       reader.readAsDataURL(file);
     } catch (error) {
       console.error('Erreur lors du chargement du fichier:', error);
       alert('Une erreur est survenue lors du chargement du fichier. Veuillez réessayer.');
-      setIsProcessing(false);
     }
   };
 
@@ -1276,8 +1495,6 @@ export default function MiseEnPretISBN() {
                   </SubFormGroup>
                 </FormGroup>
 
-
-
                 <ButtonContainer>
                   <Button onClick={handleBookSubmit}>
                     Mettre en prêt
@@ -1327,4 +1544,4 @@ export default function MiseEnPretISBN() {
       )}
     </>
   );
-} 
+}
