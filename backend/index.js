@@ -554,7 +554,9 @@ app.get('/api/livres/:id', async (req, res) => {
     const livre = await Book.findOne({ 
       _id: req.params.id, 
       proprietaire: req.user._id 
-    });
+    })
+    .populate('demandePret.demandeur', 'username')
+    .populate('pretActuel.emprunteur', 'username');
     
     if (!livre) {
       return res.status(404).json({ message: 'Livre non trouvé' });
@@ -570,13 +572,13 @@ app.get('/api/livres/:id', async (req, res) => {
 // Route pour récupérer les détails d'un livre disponible (pour la recherche)
 app.get('/api/livres/details/:id', async (req, res) => {
   try {
-    const livre = await Book.findOne({ 
-      _id: req.params.id,
-      disponible: true 
-    }).populate('proprietaire', 'username ville telephone email');
+    const livre = await Book.findById(req.params.id)
+      .populate('proprietaire', 'username ville telephone email')
+      .populate('demandePret.demandeur', 'username')
+      .populate('pretActuel.emprunteur', 'username');
     
     if (!livre) {
-      return res.status(404).json({ message: 'Livre non trouvé ou non disponible' });
+      return res.status(404).json({ message: 'Livre non trouvé' });
     }
     
     res.json(livre);
@@ -687,6 +689,401 @@ app.post('/api/livres', async (req, res) => {
       message: 'Erreur serveur lors de l\'ajout du livre',
       error: process.env.NODE_ENV === 'development' ? err.message : 'Erreur interne'
     });
+  }
+});
+
+// ROUTES POUR LES DEMANDES DE PRÊT
+
+// Route pour faire une demande de prêt
+app.post('/api/livres/:id/demande-pret', async (req, res) => {
+  if (!req.isAuthenticated() || !req.user) {
+    return res.status(401).json({ message: 'Non authentifié' });
+  }
+
+  try {
+    const bookId = req.params.id;
+    const demandeurId = req.user._id;
+    const { message } = req.body;
+
+    // Récupérer le livre avec les informations du propriétaire
+    const livre = await Book.findById(bookId).populate('proprietaire', 'username _id');
+    
+    if (!livre) {
+      return res.status(404).json({ message: 'Livre non trouvé' });
+    }
+
+    // Vérifier que l'utilisateur ne demande pas à emprunter son propre livre
+    if (livre.proprietaire._id.toString() === demandeurId.toString()) {
+      return res.status(400).json({ message: 'Vous ne pouvez pas emprunter votre propre livre' });
+    }
+
+    // Vérifier que le livre est disponible
+    if (livre.statut !== 'disponible') {
+      let messageStatut = 'Ce livre n\'est pas disponible';
+      if (livre.statut === 'reserve') {
+        messageStatut = 'Ce livre est déjà réservé';
+      } else if (livre.statut === 'prete') {
+        messageStatut = 'Ce livre est actuellement prêté';
+      }
+      return res.status(400).json({ message: messageStatut });
+    }
+
+    // Réserver le livre
+    livre.reserver(demandeurId);
+    await livre.save();
+
+    // Créer ou récupérer la conversation entre les deux utilisateurs
+    let conversation = await Conversation.findOne({
+      participants: { $all: [demandeurId, livre.proprietaire._id] },
+      deletedBy: { $ne: demandeurId }
+    });
+
+    if (!conversation) {
+      conversation = new Conversation({
+        participants: [demandeurId, livre.proprietaire._id],
+        bookInfo: {
+          titre: livre.titre,
+          auteur: livre.auteur,
+          imageUrl: livre.imageUrl,
+          bookId: livre._id
+        },
+        unreadCount: new Map()
+      });
+      await conversation.save();
+    }
+
+    // Créer le message automatique pour informer le propriétaire
+    const messageContent = message || 
+      `Bonjour ! Je souhaiterais emprunter votre livre "${livre.titre}" de ${livre.auteur}. Pouvons-nous convenir d'un arrangement ?`;
+
+    const demandePretMessage = new Message({
+      conversationId: conversation._id,
+      sender: demandeurId,
+      content: messageContent
+    });
+
+    await demandePretMessage.save();
+
+    // Mettre à jour la conversation
+    conversation.lastMessage = demandePretMessage._id;
+    conversation.lastMessageDate = new Date();
+    conversation.incrementUnreadCount(livre.proprietaire._id);
+    await conversation.save();
+
+    // Notifier le propriétaire via Socket.IO
+    const messageData = {
+      id: demandePretMessage._id,
+      conversationId: conversation._id,
+      content: demandePretMessage.content,
+      sender: demandeurId,
+      senderUsername: req.user.username,
+      timestamp: new Date(demandePretMessage.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: demandePretMessage.createdAt
+    };
+
+    // Émettre le nouveau message via Socket.IO
+    io.to(`conversation_${conversation._id}`).emit('new_message', messageData);
+
+    // Notifier le propriétaire de la nouvelle demande de prêt
+    io.to(`user_${livre.proprietaire._id}`).emit('loan_request', {
+      bookId: livre._id,
+      bookTitle: livre.titre,
+      requester: req.user.username,
+      conversationId: conversation._id,
+      message: messageContent
+    });
+
+    // Notifier de la nouvelle conversation si nécessaire
+    io.to(`user_${livre.proprietaire._id}`).emit('new_conversation', {
+      conversationId: conversation._id,
+      sender: {
+        id: req.user._id,
+        username: req.user.username
+      },
+      lastMessage: messageData,
+      bookInfo: conversation.bookInfo,
+      unreadCount: 1
+    });
+
+    res.json({ 
+      message: 'Demande de prêt envoyée avec succès !',
+      conversationId: conversation._id,
+      expirationDate: livre.demandePret.dateExpiration
+    });
+
+  } catch (error) {
+    console.error('Erreur lors de la demande de prêt:', error);
+    res.status(500).json({ message: error.message || 'Erreur serveur' });
+  }
+});
+
+// Route pour accepter une demande de prêt
+app.post('/api/livres/:id/accepter-pret', async (req, res) => {
+  if (!req.isAuthenticated() || !req.user) {
+    return res.status(401).json({ message: 'Non authentifié' });
+  }
+
+  try {
+    const bookId = req.params.id;
+    const { dureeJours = 14 } = req.body;
+
+    const livre = await Book.findById(bookId)
+      .populate('proprietaire', 'username _id')
+      .populate('demandePret.demandeur', 'username _id');
+    
+    if (!livre) {
+      return res.status(404).json({ message: 'Livre non trouvé' });
+    }
+
+    // Vérifier que l'utilisateur est le propriétaire
+    if (livre.proprietaire._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Vous n\'êtes pas le propriétaire de ce livre' });
+    }
+
+    // Accepter la demande de prêt
+    livre.accepterPret(dureeJours);
+    await livre.save();
+
+    // Trouver la conversation et envoyer un message de confirmation
+    const conversation = await Conversation.findOne({
+      participants: { $all: [req.user._id, livre.demandePret.demandeur._id] }
+    });
+
+    if (conversation) {
+      const confirmationMessage = new Message({
+        conversationId: conversation._id,
+        sender: req.user._id,
+        content: `Super ! J'accepte de vous prêter "${livre.titre}". Le livre est maintenant réservé pour vous jusqu'au ${livre.pretActuel.dateFinPrevue.toLocaleDateString('fr-FR')}. Contactez-moi pour organiser la remise !`
+      });
+
+      await confirmationMessage.save();
+
+      // Mettre à jour la conversation
+      conversation.lastMessage = confirmationMessage._id;
+      conversation.lastMessageDate = new Date();
+      conversation.incrementUnreadCount(livre.demandePret.demandeur._id);
+      await conversation.save();
+
+      // Notifier via Socket.IO
+      const messageData = {
+        id: confirmationMessage._id,
+        conversationId: conversation._id,
+        content: confirmationMessage.content,
+        sender: req.user._id,
+        senderUsername: req.user.username,
+        timestamp: new Date(confirmationMessage.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        createdAt: confirmationMessage.createdAt
+      };
+
+      io.to(`conversation_${conversation._id}`).emit('new_message', messageData);
+      
+      // Notifier l'emprunteur que sa demande est acceptée
+      io.to(`user_${livre.demandePret.demandeur._id}`).emit('loan_accepted', {
+        bookId: livre._id,
+        bookTitle: livre.titre,
+        returnDate: livre.pretActuel.dateFinPrevue,
+        conversationId: conversation._id
+      });
+    }
+
+    res.json({ 
+      message: 'Demande de prêt acceptée !',
+      returnDate: livre.pretActuel.dateFinPrevue 
+    });
+
+  } catch (error) {
+    console.error('Erreur lors de l\'acceptation du prêt:', error);
+    res.status(500).json({ message: error.message || 'Erreur serveur' });
+  }
+});
+
+// Route pour refuser une demande de prêt
+app.post('/api/livres/:id/refuser-pret', async (req, res) => {
+  if (!req.isAuthenticated() || !req.user) {
+    return res.status(401).json({ message: 'Non authentifié' });
+  }
+
+  try {
+    const bookId = req.params.id;
+    const { raison } = req.body;
+
+    const livre = await Book.findById(bookId)
+      .populate('proprietaire', 'username _id')
+      .populate('demandePret.demandeur', 'username _id');
+    
+    if (!livre) {
+      return res.status(404).json({ message: 'Livre non trouvé' });
+    }
+
+    // Vérifier que l'utilisateur est le propriétaire
+    if (livre.proprietaire._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Vous n\'êtes pas le propriétaire de ce livre' });
+    }
+
+    const demandeurId = livre.demandePret.demandeur._id;
+
+    // Refuser la demande de prêt
+    livre.refuserPret();
+    await livre.save();
+
+    // Trouver la conversation et envoyer un message
+    const conversation = await Conversation.findOne({
+      participants: { $all: [req.user._id, demandeurId] }
+    });
+
+    if (conversation) {
+      const refusMessage = new Message({
+        conversationId: conversation._id,
+        sender: req.user._id,
+        content: raison || `Désolé, je ne peux pas prêter "${livre.titre}" pour le moment. Le livre est de nouveau disponible pour d'autres demandes.`
+      });
+
+      await refusMessage.save();
+
+      // Mettre à jour la conversation
+      conversation.lastMessage = refusMessage._id;
+      conversation.lastMessageDate = new Date();
+      conversation.incrementUnreadCount(demandeurId);
+      await conversation.save();
+
+      // Notifier via Socket.IO
+      const messageData = {
+        id: refusMessage._id,
+        conversationId: conversation._id,
+        content: refusMessage.content,
+        sender: req.user._id,
+        senderUsername: req.user.username,
+        timestamp: new Date(refusMessage.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        createdAt: refusMessage.createdAt
+      };
+
+      io.to(`conversation_${conversation._id}`).emit('new_message', messageData);
+      
+      // Notifier l'emprunteur que sa demande est refusée
+      io.to(`user_${demandeurId}`).emit('loan_rejected', {
+        bookId: livre._id,
+        bookTitle: livre.titre,
+        reason: raison,
+        conversationId: conversation._id
+      });
+    }
+
+    res.json({ message: 'Demande de prêt refusée' });
+
+  } catch (error) {
+    console.error('Erreur lors du refus du prêt:', error);
+    res.status(500).json({ message: error.message || 'Erreur serveur' });
+  }
+});
+
+// Route pour marquer le retour d'un livre
+app.post('/api/livres/:id/retour', async (req, res) => {
+  if (!req.isAuthenticated() || !req.user) {
+    return res.status(401).json({ message: 'Non authentifié' });
+  }
+
+  try {
+    const bookId = req.params.id;
+
+    const livre = await Book.findById(bookId)
+      .populate('proprietaire', 'username _id')
+      .populate('pretActuel.emprunteur', 'username _id');
+    
+    if (!livre) {
+      return res.status(404).json({ message: 'Livre non trouvé' });
+    }
+
+    // Vérifier que l'utilisateur est le propriétaire
+    if (livre.proprietaire._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Vous n\'êtes pas le propriétaire de ce livre' });
+    }
+
+    const emprunteurId = livre.pretActuel.emprunteur._id;
+
+    // Marquer le retour
+    livre.retournerLivre();
+    await livre.save();
+
+    // Trouver la conversation et envoyer un message de confirmation
+    const conversation = await Conversation.findOne({
+      participants: { $all: [req.user._id, emprunteurId] }
+    });
+
+    if (conversation) {
+      const retourMessage = new Message({
+        conversationId: conversation._id,
+        sender: req.user._id,
+        content: `Merci d'avoir rendu "${livre.titre}" ! Le livre est de nouveau disponible pour d'autres emprunts.`
+      });
+
+      await retourMessage.save();
+
+      // Mettre à jour la conversation
+      conversation.lastMessage = retourMessage._id;
+      conversation.lastMessageDate = new Date();
+      conversation.incrementUnreadCount(emprunteurId);
+      await conversation.save();
+
+      // Notifier via Socket.IO
+      const messageData = {
+        id: retourMessage._id,
+        conversationId: conversation._id,
+        content: retourMessage.content,
+        sender: req.user._id,
+        senderUsername: req.user.username,
+        timestamp: new Date(retourMessage.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        createdAt: retourMessage.createdAt
+      };
+
+      io.to(`conversation_${conversation._id}`).emit('new_message', messageData);
+      
+      // Notifier l'ex-emprunteur
+      io.to(`user_${emprunteurId}`).emit('book_returned', {
+        bookId: livre._id,
+        bookTitle: livre.titre,
+        conversationId: conversation._id
+      });
+    }
+
+    res.json({ message: 'Retour du livre confirmé !' });
+
+  } catch (error) {
+    console.error('Erreur lors du retour du livre:', error);
+    res.status(500).json({ message: error.message || 'Erreur serveur' });
+  }
+});
+
+// Route pour récupérer les demandes de prêt en attente pour un propriétaire
+app.get('/api/mes-demandes-pret', async (req, res) => {
+  if (!req.isAuthenticated() || !req.user) {
+    return res.status(401).json({ message: 'Non authentifié' });
+  }
+
+  try {
+    const demandesEnAttente = await Book.find({
+      proprietaire: req.user._id,
+      statut: 'reserve',
+      'demandePret.statut': 'en_attente'
+    })
+    .populate('demandePret.demandeur', 'username')
+    .sort({ 'demandePret.dateDemande': -1 });
+
+    const demandes = demandesEnAttente.map(livre => ({
+      id: livre._id,
+      titre: livre.titre,
+      auteur: livre.auteur,
+      imageUrl: livre.imageUrl,
+      demandeur: livre.demandePret.demandeur.username,
+      demandeurId: livre.demandePret.demandeur._id,
+      dateDemande: livre.demandePret.dateDemande,
+      dateExpiration: livre.demandePret.dateExpiration
+    }));
+
+    res.json({ demandes });
+
+  } catch (error) {
+    console.error('Erreur lors de la récupération des demandes:', error);
+    res.status(500).json({ message: 'Erreur serveur' });
   }
 });
 

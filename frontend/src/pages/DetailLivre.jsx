@@ -197,6 +197,7 @@ export default function DetailLivre() {
   const [livre, setLivre] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
     const fetchLivre = async () => {
@@ -247,6 +248,122 @@ export default function DetailLivre() {
     navigate(`/modifier-livre/${id}`);
   };
 
+  const handleAccepterPret = async () => {
+    if (processing) return;
+
+    const confirmation = window.confirm(
+      `Accepter la demande d'emprunt de ${livre.demandePret?.demandeur?.username || 'cet utilisateur'} pour "${livre.titre}" ?\n\n` +
+      `Le livre sera marqué comme prêté pendant 14 jours par défaut.`
+    );
+
+    if (!confirmation) return;
+
+    setProcessing(true);
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/livres/${id}/accepter-pret`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ dureeJours: 14 })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert(`Demande acceptée ! Le livre est prêté jusqu'au ${new Date(data.returnDate).toLocaleDateString('fr-FR')}.`);
+        
+        // Recharger les données du livre
+        window.location.reload();
+      } else {
+        alert(data.message || 'Erreur lors de l\'acceptation');
+      }
+    } catch (error) {
+      console.error('Erreur:', error);
+      alert('Erreur de connexion');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleRefuserPret = async () => {
+    if (processing) return;
+
+    const raison = prompt(
+      `Refuser la demande d'emprunt de ${livre.demandePret?.demandeur?.username || 'cet utilisateur'} ?\n\n` +
+      `Vous pouvez saisir une raison (optionnel) :`
+    );
+
+    if (raison === null) return; // Utilisateur a annulé
+
+    setProcessing(true);
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/livres/${id}/refuser-pret`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ raison: raison || undefined })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert('Demande refusée. Le livre est de nouveau disponible.');
+        
+        // Recharger les données du livre
+        window.location.reload();
+      } else {
+        alert(data.message || 'Erreur lors du refus');
+      }
+    } catch (error) {
+      console.error('Erreur:', error);
+      alert('Erreur de connexion');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleMarquerRetour = async () => {
+    if (processing) return;
+
+    const confirmation = window.confirm(
+      `Marquer "${livre.titre}" comme retourné par ${livre.pretActuel?.emprunteur?.username || 'l\'emprunteur'} ?\n\n` +
+      `Le livre redeviendra disponible pour d'autres emprunts.`
+    );
+
+    if (!confirmation) return;
+
+    setProcessing(true);
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/livres/${id}/retour`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert('Retour confirmé ! Le livre est de nouveau disponible.');
+        
+        // Recharger les données du livre
+        window.location.reload();
+      } else {
+        alert(data.message || 'Erreur lors de la confirmation du retour');
+      }
+    } catch (error) {
+      console.error('Erreur:', error);
+      alert('Erreur de connexion');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   if (loading) {
     return (
       <Wrapper>
@@ -293,7 +410,16 @@ export default function DetailLivre() {
           <BookInfo>
             <BookTitle theme={theme}>{livre.titre}</BookTitle>
             <BookAuthor theme={theme}>par {livre.auteur}</BookAuthor>
-            <BookStatus>Disponible</BookStatus>
+            <BookStatus style={{
+              background: livre.statut === 'disponible' ? '#2196f3' : 
+                         livre.statut === 'reserve' ? '#FF9800' : 
+                         livre.statut === 'prete' ? '#f44336' : '#9E9E9E'
+            }}>
+              {livre.statut === 'disponible' && '✅ Disponible'}
+              {livre.statut === 'reserve' && '⏳ Demande en attente'}
+              {livre.statut === 'prete' && '📚 Actuellement prêté'}
+              {livre.statut === 'indisponible' && '❌ Indisponible'}
+            </BookStatus>
           </BookInfo>
         </Header>
 
@@ -348,6 +474,71 @@ export default function DetailLivre() {
             <SectionTitle theme={theme}>Résumé</SectionTitle>
             <Description theme={theme}>
               <p>{livre.resume}</p>
+            </Description>
+          </DetailsSection>
+        )}
+
+        {/* Section pour les demandes de prêt et prêts en cours */}
+        {livre.statut === 'reserve' && livre.demandePret && (
+          <DetailsSection>
+            <SectionTitle theme={theme} style={{ color: '#FF9800' }}>
+              📋 Demande de prêt en attente
+            </SectionTitle>
+            <Description theme={theme} style={{ background: '#FFF3E0', border: '2px solid #FF9800' }}>
+              <p>
+                <strong>Demandeur :</strong> {livre.demandePret.demandeur?.username || 'Utilisateur inconnu'}<br/>
+                <strong>Date de demande :</strong> {new Date(livre.demandePret.dateDemande).toLocaleDateString('fr-FR', {
+                  year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                })}<br/>
+                <strong>Expire le :</strong> {new Date(livre.demandePret.dateExpiration).toLocaleDateString('fr-FR', {
+                  year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                })}
+              </p>
+              <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+                <Button 
+                  onClick={handleAccepterPret}
+                  disabled={processing}
+                  style={{ background: '#4CAF50', opacity: processing ? 0.7 : 1 }}
+                >
+                  {processing ? '⏳ Traitement...' : '✅ Accepter'}
+                </Button>
+                <Button 
+                  onClick={handleRefuserPret}
+                  disabled={processing}
+                  style={{ background: '#f44336', opacity: processing ? 0.7 : 1 }}
+                >
+                  {processing ? '⏳ Traitement...' : '❌ Refuser'}
+                </Button>
+              </div>
+            </Description>
+          </DetailsSection>
+        )}
+
+        {livre.statut === 'prete' && livre.pretActuel && (
+          <DetailsSection>
+            <SectionTitle theme={theme} style={{ color: '#f44336' }}>
+              📚 Actuellement prêté
+            </SectionTitle>
+            <Description theme={theme} style={{ background: '#FFEBEE', border: '2px solid #f44336' }}>
+              <p>
+                <strong>Emprunteur :</strong> {livre.pretActuel.emprunteur?.username || 'Utilisateur inconnu'}<br/>
+                <strong>Prêté depuis le :</strong> {new Date(livre.pretActuel.dateDebut).toLocaleDateString('fr-FR')}<br/>
+                <strong>Retour prévu le :</strong> {new Date(livre.pretActuel.dateFinPrevue).toLocaleDateString('fr-FR')}<br/>
+                <strong>Statut :</strong> {
+                  new Date(livre.pretActuel.dateFinPrevue) < new Date() 
+                    ? '⚠️ En retard' 
+                    : '✅ Dans les temps'
+                }
+              </p>
+              <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+                <Button 
+                  onClick={handleMarquerRetour}
+                  disabled={processing}
+                  style={{ background: '#4CAF50', opacity: processing ? 0.7 : 1 }}
+                >
+                  {processing ? '⏳ Traitement...' : '📥 Marquer comme retourné'}
+                </Button>
+              </div>
             </Description>
           </DetailsSection>
         )}

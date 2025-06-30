@@ -17,6 +17,7 @@ import Messagerie from './pages/Messagerie';
 import HeaderGlobal from './components/HeaderGlobal';
 import ModifierInfos from './pages/ModifierInfos';
 import CreationUsername from './pages/CreationUsername';
+import LoanNotification from './components/LoanNotification';
 import { ThemeProvider, useTheme } from './theme/ThemeContext';
 
 const GlobalStyle = createGlobalStyle`
@@ -39,6 +40,7 @@ function AppContent() {
       <GlobalStyle theme={theme} />
       <FondAnime />
       <HeaderGlobal />
+      <LoanNotification />
       <Routes>
         <Route path="/" element={<Recherche />} />
         <Route path="/recherche" element={<Recherche />} />

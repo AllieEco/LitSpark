@@ -297,6 +297,8 @@ export default function DetailLivreRecherche() {
     }
   }, [id]);
 
+  const [isRequesting, setIsRequesting] = useState(false);
+
   const handleAction = (action) => {
     if (action === 'message') {
       // Naviguer vers la messagerie avec les infos du livre et du propriétaire
@@ -317,9 +319,77 @@ export default function DetailLivreRecherche() {
           bookInfo: bookInfo
         } 
       });
-    } else if (action === 'reserve') {
-      // Fonctionnalité de réservation à implémenter
-      alert('Fonctionnalité de réservation en cours de développement');
+    } else if (action === 'emprunter') {
+      handleLoanRequest();
+    }
+  };
+
+  const handleLoanRequest = async () => {
+    if (isRequesting) return;
+
+    // Vérifier l'authentification
+    if (!user) {
+      alert('Vous devez être connecté pour emprunter un livre');
+      navigate('/connexion');
+      return;
+    }
+
+    // Vérifier que le livre est disponible
+    if (livre.statut !== 'disponible') {
+      let message = 'Ce livre n\'est pas disponible pour l\'emprunt.';
+      if (livre.statut === 'reserve') {
+        message = 'Ce livre est déjà réservé par un autre utilisateur.';
+      } else if (livre.statut === 'prete') {
+        message = 'Ce livre est actuellement prêté.';
+      }
+      alert(message);
+      return;
+    }
+
+    const confirmation = window.confirm(
+      `Voulez-vous demander à emprunter "${livre.titre}" ?\n\n` +
+      `Une demande sera envoyée au propriétaire et le livre sera temporairement réservé (48h).`
+    );
+
+    if (!confirmation) return;
+
+    setIsRequesting(true);
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/livres/${livre._id}/demande-pret`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          message: `Bonjour ! Je souhaiterais emprunter votre livre "${livre.titre}". Pouvons-nous nous organiser pour la remise ?`
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert('Demande d\'emprunt envoyée avec succès ! Le propriétaire recevra une notification.');
+        
+        // Mettre à jour le statut du livre localement
+        setLivre(prev => ({
+          ...prev,
+          statut: 'reserve'
+        }));
+
+        // Optionnel : rediriger vers la messagerie
+        setTimeout(() => {
+          navigate('/messagerie');
+        }, 2000);
+      } else {
+        alert(data.message || 'Erreur lors de l\'envoi de la demande');
+      }
+    } catch (error) {
+      console.error('Erreur lors de la demande d\'emprunt:', error);
+      alert('Erreur de connexion. Veuillez réessayer.');
+    } finally {
+      setIsRequesting(false);
     }
   };
 
@@ -388,8 +458,15 @@ export default function DetailLivreRecherche() {
           <BookInfo>
             <BookTitle theme={theme}>{livre.titre}</BookTitle>
             <BookAuthor theme={theme}>par {livre.auteur}</BookAuthor>
-            <AvailabilityBadge>
-              ✅ Disponible à l'emprunt
+            <AvailabilityBadge style={{
+              background: livre.statut === 'disponible' ? '#4CAF50' : 
+                         livre.statut === 'reserve' ? '#FF9800' : 
+                         livre.statut === 'prete' ? '#f44336' : '#9E9E9E'
+            }}>
+              {livre.statut === 'disponible' && '✅ Disponible à l\'emprunt'}
+              {livre.statut === 'reserve' && '⏳ Réservé'}
+              {livre.statut === 'prete' && '📚 Prêté'}
+              {livre.statut === 'indisponible' && '❌ Indisponible'}
             </AvailabilityBadge>
           </BookInfo>
         </BookHeader>
@@ -444,8 +521,16 @@ export default function DetailLivreRecherche() {
               </DetailItem>
               <DetailItem theme={theme}>
                 <DetailLabel theme={theme}>Statut</DetailLabel>
-                <DetailValue theme={theme} style={{ color: '#4CAF50', fontWeight: '600' }}>
-                  Disponible
+                <DetailValue theme={theme} style={{ 
+                  color: livre.statut === 'disponible' ? '#4CAF50' : 
+                         livre.statut === 'reserve' ? '#FF9800' : 
+                         livre.statut === 'prete' ? '#f44336' : '#9E9E9E',
+                  fontWeight: '600' 
+                }}>
+                  {livre.statut === 'disponible' && 'Disponible'}
+                  {livre.statut === 'reserve' && 'Réservé'}
+                  {livre.statut === 'prete' && 'Prêté'}
+                  {livre.statut === 'indisponible' && 'Indisponible'}
                 </DetailValue>
               </DetailItem>
               <DetailItem theme={theme}>
@@ -511,9 +596,29 @@ export default function DetailLivreRecherche() {
               <ContactButton onClick={() => handleAction('message')}>
                 💬 Envoyer un message
               </ContactButton>
-              <ContactButton onClick={() => handleAction('reserve')}>
-                📋 Réserver
-              </ContactButton>
+              {livre.statut === 'disponible' && (
+                <ContactButton 
+                  onClick={() => handleAction('emprunter')}
+                  disabled={isRequesting}
+                  style={{
+                    background: isRequesting ? '#ccc' : '',
+                    cursor: isRequesting ? 'not-allowed' : 'pointer',
+                    opacity: isRequesting ? 0.7 : 1
+                  }}
+                >
+                  {isRequesting ? '⏳ Envoi...' : '📚 Emprunter'}
+                </ContactButton>
+              )}
+              {livre.statut === 'reserve' && (
+                <ContactButton style={{ background: '#FF9800', cursor: 'not-allowed' }} disabled>
+                  ⏳ Déjà réservé
+                </ContactButton>
+              )}
+              {livre.statut === 'prete' && (
+                <ContactButton style={{ background: '#f44336', cursor: 'not-allowed' }} disabled>
+                  📚 Déjà prêté
+                </ContactButton>
+              )}
             </ContactButtons>
           )}
         </OwnerSection>
