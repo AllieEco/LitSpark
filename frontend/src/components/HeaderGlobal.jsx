@@ -7,23 +7,24 @@ const Header = styled.header`
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  padding: 1.2rem 2rem 0.5rem 2rem;
-  background: transparent;
-  z-index: 3;
-  position: absolute;
+  padding: 1.5rem 2rem 2rem 2rem;
+  background: ${props => props.theme.background};
+  z-index: 1000;
+  position: fixed;
   top: 0;
   left: 0;
+  opacity: 1;
 
   @media (max-width: 1200px) {
-    padding: 1.2rem 2rem 0.5rem 2rem;
+    padding: 1.5rem 2rem 2rem 2rem;
   }
 
   @media (max-width: 800px) {
-    padding: 1.2rem 2rem 0.5rem 2rem;
+    padding: 1.5rem 2rem 2rem 2rem;
   }
 
   @media (max-width: 500px) {
-    padding: 1.2rem 1.5rem 0.5rem 1.5rem;
+    padding: 1.5rem 1.5rem 2rem 1.5rem;
   }
 `;
 

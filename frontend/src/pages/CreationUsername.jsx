@@ -15,7 +15,7 @@ const PageContainer = styled.div`
   background: linear-gradient(135deg, #e0f7fa 0%, #f1f8e9 100%);
   position: relative;
   z-index: 10;
-  padding-top: 15vh;
+  padding-top: 20vh;
 `;
 
 const Card = styled.div`

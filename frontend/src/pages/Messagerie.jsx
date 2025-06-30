@@ -38,7 +38,7 @@ const Wrapper = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 8vh;
+  padding-top: 13vh;
   padding-bottom: 4vh;
   animation: ${fadeIn} 0.6s ease-out;
 `;

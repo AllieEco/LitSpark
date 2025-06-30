@@ -8,7 +8,7 @@ const LogoText = styled.h1`
   color: ${props => props.theme.text};
   letter-spacing: -0.5px;
   position: ${props => props.centered ? 'relative' : 'fixed'};
-  z-index: 3;
+  z-index: 1001;
   margin: 0;
   text-align: ${props => props.centered ? 'center' : 'left'};
   cursor: pointer;
