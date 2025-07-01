@@ -458,6 +458,9 @@ export default function Compte() {
               <Button onClick={() => navigate('/modifier-infos')}>
                 Modifier mes infos
               </Button>
+              <Button onClick={() => navigate('/messages-personnalises')}>
+                📝 Messages personnalisés
+              </Button>
               <Button onClick={handleLogout}>
                 Se déconnecter
               </Button>

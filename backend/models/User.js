@@ -29,6 +29,22 @@ const UserSchema = new mongoose.Schema({
     empruntes: { type: Number, default: 0 },
     pretes: { type: Number, default: 0 },
     misesEnPret: { type: Number, default: 0 }
+  },
+  
+  // Messages personnalisés pour les prêts
+  messagesPersonnalises: {
+    messageRetour: { 
+      type: String, 
+      default: 'Merci d\'avoir rendu "{titre}" ! 📚 Le livre est de nouveau disponible pour d\'autres emprunts. J\'espère que vous avez apprécié votre lecture !' 
+    },
+    messageAcceptation: { 
+      type: String, 
+      default: 'Super ! J\'accepte de vous prêter "{titre}" 📖 Le livre est maintenant réservé pour vous jusqu\'au {dateRetour}. Contactez-moi pour organiser la remise !' 
+    },
+    messageRefus: { 
+      type: String, 
+      default: 'Désolé, je ne peux pas prêter "{titre}" pour le moment. 😔 Le livre est de nouveau disponible pour d\'autres demandes.' 
+    }
   }
 });
 

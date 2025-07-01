@@ -14,6 +14,7 @@ import DetailLivre from './pages/DetailLivre';
 import DetailLivreRecherche from './pages/DetailLivreRecherche';
 import ModifierLivre from './pages/ModifierLivre';
 import Messagerie from './pages/Messagerie';
+import MessagesPersonnalises from './pages/MessagesPersonnalises';
 import HeaderGlobal from './components/HeaderGlobal';
 import ModifierInfos from './pages/ModifierInfos';
 import CreationUsername from './pages/CreationUsername';
@@ -57,6 +58,7 @@ function AppContent() {
         <Route path="/livre/details/:id" element={<DetailLivreRecherche />} />
         <Route path="/modifier-livre/:id" element={<ModifierLivre />} />
         <Route path="/modifier-infos" element={<ModifierInfos />} />
+        <Route path="/messages-personnalises" element={<MessagesPersonnalises />} />
         <Route path="/creation-username" element={<CreationUsername />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>

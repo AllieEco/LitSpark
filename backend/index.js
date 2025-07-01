@@ -889,10 +889,19 @@ app.post('/api/livres/:id/accepter-pret', async (req, res) => {
     });
 
     if (conversation) {
+      // Récupérer le message personnalisé du propriétaire
+      const proprietaire = await User.findById(req.user._id);
+      let messageContent = proprietaire.messagesPersonnalises?.messageAcceptation || 
+        'Bonne nouvelle ! Votre demande pour "{titre}" a été acceptée. Profitez bien de votre lecture !';
+      
+      // Remplacer les variables dans le message
+      messageContent = messageContent.replace('{titre}', livre.titre)
+        .replace('{dateRetour}', livre.pretActuel.dateFinPrevue.toLocaleDateString('fr-FR'));
+      
       const confirmationMessage = new Message({
         conversationId: conversation._id,
         sender: req.user._id,
-        content: `Super ! J'accepte de vous prêter "${livre.titre}". Le livre est maintenant réservé pour vous jusqu'au ${livre.pretActuel.dateFinPrevue.toLocaleDateString('fr-FR')}. Contactez-moi pour organiser la remise !`
+        content: messageContent
       });
 
       await confirmationMessage.save();
@@ -971,10 +980,23 @@ app.post('/api/livres/:id/refuser-pret', async (req, res) => {
     });
 
     if (conversation) {
+      // Récupérer le message personnalisé du propriétaire ou utiliser la raison fournie
+      let messageContent;
+      if (raison) {
+        messageContent = raison;
+      } else {
+        const proprietaire = await User.findById(req.user._id);
+        messageContent = proprietaire.messagesPersonnalises?.messageRefus || 
+          'Désolé, votre demande pour "{titre}" n\'a pas pu être acceptée.';
+        
+        // Remplacer les variables dans le message
+        messageContent = messageContent.replace('{titre}', livre.titre);
+      }
+      
       const refusMessage = new Message({
         conversationId: conversation._id,
         sender: req.user._id,
-        content: raison || `Désolé, je ne peux pas prêter "${livre.titre}" pour le moment. Le livre est de nouveau disponible pour d'autres demandes.`
+        content: messageContent
       });
 
       await refusMessage.save();
@@ -1015,7 +1037,7 @@ app.post('/api/livres/:id/refuser-pret', async (req, res) => {
   }
 });
 
-// Route pour marquer le retour d'un livre
+// Route pour marquer le retour d'un livre (propriétaire uniquement)
 app.post('/api/livres/:id/retour', async (req, res) => {
   if (!req.isAuthenticated() || !req.user) {
     return res.status(401).json({ message: 'Non authentifié' });
@@ -1062,10 +1084,18 @@ app.post('/api/livres/:id/retour', async (req, res) => {
     });
 
     if (conversation) {
+      // Récupérer le message personnalisé du propriétaire
+      const proprietaire = await User.findById(req.user._id);
+      let messageContent = proprietaire.messagesPersonnalises?.messageRetour || 
+        'Merci d\'avoir rendu "{titre}" ! Le livre est de nouveau disponible pour d\'autres emprunts.';
+      
+      // Remplacer les variables dans le message
+      messageContent = messageContent.replace('{titre}', livre.titre);
+      
       const retourMessage = new Message({
         conversationId: conversation._id,
         sender: req.user._id,
-        content: `Merci d'avoir rendu "${livre.titre}" ! Le livre est de nouveau disponible pour d'autres emprunts.`
+        content: messageContent
       });
 
       await retourMessage.save();
@@ -1621,6 +1651,58 @@ app.get('/api/test-google-config', (req, res) => {
   
   console.log('Configuration Google OAuth:', config);
   res.json(config);
+});
+
+// Route pour mettre à jour les messages personnalisés
+app.put('/api/user/messages-personnalises', async (req, res) => {
+  if (!req.isAuthenticated() || !req.user) {
+    return res.status(401).json({ message: 'Non authentifié' });
+  }
+
+  try {
+    const { messageRetour, messageAcceptation, messageRefus } = req.body;
+    
+    const user = await User.findById(req.user._id);
+    
+    if (!user.messagesPersonnalises) {
+      user.messagesPersonnalises = {};
+    }
+    
+    if (messageRetour !== undefined) {
+      user.messagesPersonnalises.messageRetour = messageRetour;
+    }
+    if (messageAcceptation !== undefined) {
+      user.messagesPersonnalises.messageAcceptation = messageAcceptation;
+    }
+    if (messageRefus !== undefined) {
+      user.messagesPersonnalises.messageRefus = messageRefus;
+    }
+    
+    await user.save();
+    
+    res.json({ 
+      message: 'Messages personnalisés mis à jour avec succès',
+      messagesPersonnalises: user.messagesPersonnalises
+    });
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour des messages:', error);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+// Route pour récupérer les messages personnalisés
+app.get('/api/user/messages-personnalises', async (req, res) => {
+  if (!req.isAuthenticated() || !req.user) {
+    return res.status(401).json({ message: 'Non authentifié' });
+  }
+
+  try {
+    const user = await User.findById(req.user._id);
+    res.json({ messagesPersonnalises: user.messagesPersonnalises || {} });
+  } catch (error) {
+    console.error('Erreur lors de la récupération des messages:', error);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
