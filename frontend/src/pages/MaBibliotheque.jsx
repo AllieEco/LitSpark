@@ -275,11 +275,16 @@ const BookStatus = styled.span`
   font-size: 0.9rem;
   font-weight: 600;
   background: ${props => 
-    props.status === 'emprunté' ? '#ff9800' :
-    props.status === 'prêté' ? '#4caf50' :
-    props.status === 'disponible' ? '#2196f3' : '#grey'
+    props.status === 'disponible' ? '#4CAF50' :
+    props.status === 'reserve' ? '#FF9800' :
+    props.status === 'prete' ? '#f44336' :
+    props.status === 'indisponible' ? '#9E9E9E' : '#2196f3'
   };
   color: white;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: fit-content;
 `;
 
 const RetourBtn = styled.a`
@@ -324,6 +329,7 @@ export default function MaBibliotheque() {
     livresMisEnPret: 0
   });
   const [livres, setLivres] = useState([]);
+  const [livresEmpruntes, setLivresEmpruntes] = useState([]);
   const [dernierLivreEmprunte, setDernierLivreEmprunte] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -380,7 +386,19 @@ export default function MaBibliotheque() {
             setDernierLivreEmprunte(data.dernierLivreEmprunte || null);
           }
         })
-        .catch(err => console.log('Erreur livres:', err))
+        .catch(err => console.log('Erreur livres:', err));
+
+      // Récupérer les livres empruntés
+      fetch('http://localhost:5000/api/user/livres-empruntes', {
+        credentials: 'include'
+      })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data) {
+            setLivresEmpruntes(data.livres || []);
+          }
+        })
+        .catch(err => console.log('Erreur livres empruntés:', err))
         .finally(() => setLoading(false));
     }
   }, [user]);
@@ -524,6 +542,46 @@ export default function MaBibliotheque() {
           </StatCard>
         </StatsContainer>
 
+        {livresEmpruntes.length > 0 && (
+          <>
+            <SectionTitle theme={theme}>
+              📖 Mes livres empruntés ({livresEmpruntes.length} livres)
+            </SectionTitle>
+            <BooksGrid>
+              {livresEmpruntes.map((livre, index) => (
+                <BookCard 
+                  key={index} 
+                  theme={theme}
+                  onClick={() => navigate(`/livre/details/${livre._id}`)}
+                >
+                  <BookCover theme={theme}>
+                    {livre.imageUrl ? (
+                      <img src={livre.imageUrl} alt={livre.titre} />
+                    ) : (
+                      <div className="no-cover">Pas de couverture</div>
+                    )}
+                  </BookCover>
+                  <BookInfo>
+                    <div>
+                      <BookTitle theme={theme}>{livre.titre}</BookTitle>
+                      <BookAuthor theme={theme}>par {livre.auteur}</BookAuthor>
+                      <BookAuthor theme={theme}>de @{livre.proprietaire.username}</BookAuthor>
+                      {livre.pretActuel && livre.pretActuel.dateFinPrevue && (
+                        <BookAuthor theme={theme}>
+                          Retour prévu : {new Date(livre.pretActuel.dateFinPrevue).toLocaleDateString('fr-FR')}
+                        </BookAuthor>
+                      )}
+                    </div>
+                    <BookStatus status="prete">
+                      📚 Emprunté
+                    </BookStatus>
+                  </BookInfo>
+                </BookCard>
+              ))}
+            </BooksGrid>
+          </>
+        )}
+
         {dernierLivreEmprunte && (
           <>
             <SectionTitle theme={theme}>
@@ -546,7 +604,13 @@ export default function MaBibliotheque() {
                     <BookTitle theme={theme}>{dernierLivreEmprunte.titre}</BookTitle>
                     <BookAuthor theme={theme}>par {dernierLivreEmprunte.auteur}</BookAuthor>
                   </div>
-                  <BookStatus status="disponible">Disponible</BookStatus>
+                  <BookStatus status={dernierLivreEmprunte.statut || 'disponible'}>
+                    {dernierLivreEmprunte.statut === 'disponible' && '✅ Disponible'}
+                    {dernierLivreEmprunte.statut === 'reserve' && '⏳ Réservé'}
+                    {dernierLivreEmprunte.statut === 'prete' && '📚 Prêté'}
+                    {dernierLivreEmprunte.statut === 'indisponible' && '❌ Indisponible'}
+                    {!dernierLivreEmprunte.statut && '✅ Disponible'}
+                  </BookStatus>
                 </BookInfo>
               </BookCard>
             </BooksGrid>
@@ -577,7 +641,13 @@ export default function MaBibliotheque() {
                     <BookTitle theme={theme}>{livre.titre}</BookTitle>
                     <BookAuthor theme={theme}>par {livre.auteur}</BookAuthor>
                   </div>
-                  <BookStatus status="disponible">Disponible</BookStatus>
+                  <BookStatus status={livre.statut || 'disponible'}>
+                    {livre.statut === 'disponible' && '✅ Disponible'}
+                    {livre.statut === 'reserve' && '⏳ Réservé'}
+                    {livre.statut === 'prete' && '📚 Prêté'}
+                    {livre.statut === 'indisponible' && '❌ Indisponible'}
+                    {!livre.statut && '✅ Disponible'}
+                  </BookStatus>
                 </BookInfo>
               </BookCard>
             ))}

@@ -350,11 +350,16 @@ const BookGenre = styled.span`
 const BookStatus = styled.div`
   margin-top: auto;
   font-size: 0.8rem;
-  color: ${props => props.available ? '#4CAF50' : '#FF9800'};
   font-weight: 600;
   display: flex;
   align-items: center;
   gap: 0.3rem;
+  color: ${props => 
+    props.status === 'disponible' ? '#4CAF50' :
+    props.status === 'reserve' ? '#FF9800' :
+    props.status === 'prete' ? '#f44336' :
+    props.status === 'indisponible' ? '#9E9E9E' : '#4CAF50'
+  };
 `;
 
 const LoadingMessage = styled.div`
@@ -466,8 +471,9 @@ export default function BibliothequeUtilisateur() {
     );
   }
 
-  const livresDisponibles = books.filter(book => book.disponible);
-  const livresEmpruntes = books.filter(book => !book.disponible);
+  const livresDisponibles = books.filter(book => book.statut === 'disponible' || !book.statut);
+  const livresEmpruntes = books.filter(book => book.statut === 'prete');
+  const livresReserves = books.filter(book => book.statut === 'reserve');
 
   return (
     <Wrapper>
@@ -512,16 +518,16 @@ export default function BibliothequeUtilisateur() {
 
         <StatsContainer>
           <StatCard theme={theme}>
-            <StatNumber theme={theme}>{user?.livresPrets || 0}</StatNumber>
-            <StatLabel theme={theme}>Livres prêtés</StatLabel>
-          </StatCard>
-          <StatCard theme={theme}>
             <StatNumber theme={theme}>{livresDisponibles.length}</StatNumber>
             <StatLabel theme={theme}>Livres disponibles</StatLabel>
           </StatCard>
           <StatCard theme={theme}>
+            <StatNumber theme={theme}>{livresReserves.length}</StatNumber>
+            <StatLabel theme={theme}>Livres réservés</StatLabel>
+          </StatCard>
+          <StatCard theme={theme}>
             <StatNumber theme={theme}>{livresEmpruntes.length}</StatNumber>
-            <StatLabel theme={theme}>Livres empruntés</StatLabel>
+            <StatLabel theme={theme}>Livres prêtés</StatLabel>
           </StatCard>
         </StatsContainer>
 
@@ -557,12 +563,11 @@ export default function BibliothequeUtilisateur() {
                     {book.genre && (
                       <BookGenre theme={theme}>{book.genre}</BookGenre>
                     )}
-                    <BookStatus theme={theme} available={book.disponible}>
-                      {book.disponible ? (
-                        <>✅ Disponible</>
-                      ) : (
-                        <>📖 Emprunté</>
-                      )}
+                    <BookStatus theme={theme} status={book.statut || 'disponible'}>
+                      {(book.statut === 'disponible' || !book.statut) && '✅ Disponible'}
+                      {book.statut === 'reserve' && '⏳ Réservé'}
+                      {book.statut === 'prete' && '📚 Prêté'}
+                      {book.statut === 'indisponible' && '❌ Indisponible'}
                     </BookStatus>
                   </BookInfo>
                 </BookCard>

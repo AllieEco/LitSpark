@@ -138,7 +138,12 @@ const BookAuthor = styled.p`
 `;
 
 const AvailabilityBadge = styled.div`
-  background: #4CAF50;
+  background: ${props => 
+    props.status === 'disponible' ? '#4CAF50' :
+    props.status === 'reserve' ? '#FF9800' :
+    props.status === 'prete' ? '#f44336' :
+    props.status === 'indisponible' ? '#9E9E9E' : '#4CAF50'
+  };
   color: white;
   padding: 0.3rem 0.8rem;
   border-radius: 20px;
@@ -284,8 +289,11 @@ export default function SearchResultCard({ book, onClick }) {
             <BookTitle theme={theme}>{book.titre}</BookTitle>
             <BookAuthor theme={theme}>par {book.auteur}</BookAuthor>
           </BookInfo>
-          <AvailabilityBadge>
-            📚 Disponible
+          <AvailabilityBadge status={book.statut || 'disponible'}>
+            {(book.statut === 'disponible' || !book.statut) && '✅ Disponible'}
+            {book.statut === 'reserve' && '⏳ Réservé'}
+            {book.statut === 'prete' && '📚 Prêté'}
+            {book.statut === 'indisponible' && '❌ Indisponible'}
           </AvailabilityBadge>
         </BookHeader>
         

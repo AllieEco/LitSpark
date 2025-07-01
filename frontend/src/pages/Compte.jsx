@@ -278,7 +278,7 @@ export default function Compte() {
 
   useEffect(() => {
     if (user) {
-      fetch('http://localhost:5000/api/user/stats', {
+      fetch('http://localhost:5000/api/user/bibliotheque/stats', {
         credentials: 'include'
       })
         .then(res => res.ok ? res.json() : null)
@@ -448,9 +448,11 @@ export default function Compte() {
                 <Info theme={theme}>
                   <strong>Statistiques :</strong>
                   <br />
-                  Livres prêtés : {stats.livresPrêtés || 0}
+                  Livres prêtés : {stats.livresPretees || 0}
                   <br />
-                  Livres empruntés : {stats.livresEmpruntés || 0}
+                  Livres empruntés : {stats.livresEmpruntes || 0}
+                  <br />
+                  Livres mis en prêt : {stats.livresMisEnPret || 0}
                 </Info>
               )}
               <Button onClick={() => navigate('/modifier-infos')}>

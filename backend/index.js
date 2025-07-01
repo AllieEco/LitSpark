@@ -480,6 +480,29 @@ app.get('/api/user/bibliotheque', async (req, res) => {
   }
 });
 
+// Route pour récupérer les livres empruntés par l'utilisateur
+app.get('/api/user/livres-empruntes', async (req, res) => {
+  if (!req.isAuthenticated() || !req.user) {
+    return res.status(401).json({ message: 'Non authentifié' });
+  }
+  try {
+    // Récupérer tous les livres actuellement empruntés par l'utilisateur
+    const livresEmpruntes = await Book.find({ 
+      'pretActuel.emprunteur': req.user._id,
+      statut: 'prete'
+    })
+    .populate('proprietaire', 'username')
+    .sort({ 'pretActuel.dateDebut': -1 });
+
+    res.json({
+      livres: livresEmpruntes
+    });
+  } catch (err) {
+    console.error('Erreur lors de la récupération des livres empruntés:', err);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
 // Route de recherche de livres disponibles (doit être avant /api/livres/:id)
 app.get('/api/livres/recherche', async (req, res) => {
   try {
@@ -505,8 +528,8 @@ app.get('/api/livres/recherche', async (req, res) => {
     
     let query = {
       $and: [
-        // Livres disponibles seulement
-        { disponible: true },
+        // Livres disponibles seulement (utilise le nouveau champ statut)
+        { $or: [{ statut: 'disponible' }, { statut: { $exists: false } }] },
         // Recherche textuelle
         { $and: searchConditions }
       ]
@@ -844,6 +867,19 @@ app.post('/api/livres/:id/accepter-pret', async (req, res) => {
     livre.accepterPret(dureeJours);
     await livre.save();
 
+    // Mettre à jour les statistiques des utilisateurs
+    // Incrémenter le compteur de livres empruntés pour l'emprunteur
+    await User.findByIdAndUpdate(
+      livre.demandePret.demandeur._id,
+      { $inc: { 'stats.empruntes': 1 } }
+    );
+
+    // Incrémenter le compteur de livres prêtés pour le propriétaire
+    await User.findByIdAndUpdate(
+      req.user._id,
+      { $inc: { 'stats.pretes': 1 } }
+    );
+
     // Trouver la conversation et envoyer un message de confirmation
     const conversation = await Conversation.findOne({
       participants: { $all: [req.user._id, livre.demandePret.demandeur._id] }
@@ -1003,6 +1039,19 @@ app.post('/api/livres/:id/retour', async (req, res) => {
     // Marquer le retour
     livre.retournerLivre();
     await livre.save();
+
+    // Mettre à jour les statistiques des utilisateurs
+    // Décrémenter le compteur de livres empruntés pour l'emprunteur
+    await User.findByIdAndUpdate(
+      emprunteurId,
+      { $inc: { 'stats.empruntes': -1 } }
+    );
+
+    // Décrémenter le compteur de livres prêtés pour le propriétaire
+    await User.findByIdAndUpdate(
+      req.user._id,
+      { $inc: { 'stats.pretes': -1 } }
+    );
 
     // Trouver la conversation et envoyer un message de confirmation
     const conversation = await Conversation.findOne({
