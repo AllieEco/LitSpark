@@ -1,5 +1,5 @@
 import styled from 'styled-components';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Button from '../components/Button';
 import Logo from '../components/Logo';
@@ -113,6 +113,96 @@ const SearchForm = styled.form`
   }
 `;
 
+const TagFilters = styled.div`
+  width: 100%;
+  margin-top: 1rem;
+  position: relative;
+`;
+
+const TagFilterToggle = styled.button`
+  background: ${props => props.theme.containerBg};
+  color: ${props => props.theme.text};
+  border: 2px solid ${props => props.theme.containerBorder};
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 300px;
+  margin: 0 auto;
+
+  &:hover {
+    background: ${props => props.theme.buttonHoverBg};
+    transform: translateY(-1px);
+  }
+`;
+
+const TagFilterDropdown = styled.div`
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: ${props => props.theme.containerBg};
+  border: 2px solid ${props => props.theme.containerBorder};
+  border-radius: 8px;
+  box-shadow: 8px 8px 0 ${props => props.theme.containerBorder};
+  padding: 1.5rem;
+  width: 90%;
+  max-width: 500px;
+  z-index: 10;
+  margin-top: 0.5rem;
+  display: ${props => props.isOpen ? 'block' : 'none'};
+`;
+
+const TagFiltersTitle = styled.h3`
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: ${props => props.theme.text};
+  text-align: center;
+`;
+
+const TagFilterContainer = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+`;
+
+const TagFilterButton = styled.button`
+  background: ${props => props.active ? props.theme.buttonBg : 'transparent'};
+  color: ${props => props.active ? props.theme.buttonText : props.theme.text};
+  border: 2px solid ${props => props.theme.containerBorder};
+  border-radius: 20px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+
+  &:hover {
+    background: ${props => props.theme.buttonHoverBg};
+    color: ${props => props.theme.buttonText};
+  }
+`;
+
+const ActiveTagsInfo = styled.div`
+  text-align: center;
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: ${props => props.theme.containerBorder}10;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: ${props => props.theme.text};
+  opacity: 0.8;
+`;
+
 const Input = styled.input`
   width: 100%;
   max-width: 400px;
@@ -219,8 +309,19 @@ export default function Recherche() {
   const [totalPages, setTotalPages] = useState(0);
   const [totalResults, setTotalResults] = useState(0);
   const [hasSearched, setHasSearched] = useState(false);
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [showTagFilters, setShowTagFilters] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const { theme } = useTheme();
+  const tagFiltersRef = useRef(null);
+
+  // Tags populaires pour les filtres
+  const popularTags = [
+    'roman', 'aventure', 'science-fiction', 'fantasy', 'thriller', 'polar',
+    'jeunesse', 'enfants', 'adulte', 'classique', 'contemporain',
+    'biographie', 'histoire', 'philosophie', 'développement personnel',
+    'romance', 'mystère', 'humour'
+  ];
 
   useEffect(() => {
     const fetchUser = () => {
@@ -249,12 +350,60 @@ export default function Recherche() {
     }
   }, [searchParams]);
 
+  // Fermer le menu des filtres en cliquant à l'extérieur
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (tagFiltersRef.current && !tagFiltersRef.current.contains(event.target)) {
+        setShowTagFilters(false);
+      }
+    };
+
+    if (showTagFilters) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showTagFilters]);
+
+  const handleTagToggle = (tag) => {
+    setSelectedTags(prev => {
+      const newTags = prev.includes(tag) 
+        ? prev.filter(t => t !== tag)
+        : [...prev, tag];
+      
+      // Lancer la recherche avec les nouveaux tags
+      setTimeout(() => {
+        handleSearch(null, 1);
+      }, 0);
+      
+      return newTags;
+    });
+
+    // Fermer le menu sur mobile après sélection (optionnel)
+    if (window.innerWidth <= 768) {
+      setTimeout(() => setShowTagFilters(false), 500);
+    }
+  };
+
   const handleSearch = async (e, page = 1, queryOverride = null) => {
     if (e) e.preventDefault();
     
     const query = queryOverride || searchQuery;
     
-    if (!query.trim()) {
+    // Construire la requête avec les tags sélectionnés
+    const searchTerms = [];
+    if (query.trim()) {
+      searchTerms.push(query.trim());
+    }
+    selectedTags.forEach(tag => {
+      searchTerms.push(tag);
+    });
+    
+    const finalQuery = searchTerms.join(' ');
+    
+    if (!finalQuery) {
       setSearchResults([]);
       setHasSearched(false);
       setSearchParams({});
@@ -270,7 +419,7 @@ export default function Recherche() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/livres/recherche?q=${encodeURIComponent(query)}&page=${page}&limit=6`,
+        `http://localhost:5000/api/livres/recherche?q=${encodeURIComponent(finalQuery)}&page=${page}&limit=6`,
         {
           credentials: 'include'
         }
@@ -335,6 +484,77 @@ export default function Recherche() {
               {loading ? 'Recherche...' : 'Rechercher'}
             </Button>
           </SearchForm>
+          
+          <TagFilters ref={tagFiltersRef}>
+            <TagFilterToggle
+              type="button"
+              theme={theme}
+              onClick={() => setShowTagFilters(!showTagFilters)}
+            >
+              🏷️ Filtrer par catégories
+              {selectedTags.length > 0 && (
+                <span style={{
+                  background: theme.buttonBg,
+                  color: theme.buttonText,
+                  borderRadius: '10px',
+                  padding: '0.2rem 0.5rem',
+                  fontSize: '0.7rem',
+                  fontWeight: '600'
+                }}>
+                  {selectedTags.length}
+                </span>
+              )}
+              <span style={{ 
+                transform: showTagFilters ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.3s ease'
+              }}>
+                ▼
+              </span>
+            </TagFilterToggle>
+
+            <TagFilterDropdown isOpen={showTagFilters} theme={theme}>
+              <TagFiltersTitle theme={theme}>🏷️ Choisissez vos catégories</TagFiltersTitle>
+              <TagFilterContainer>
+                {popularTags.map(tag => (
+                  <TagFilterButton
+                    key={tag}
+                    type="button"
+                    theme={theme}
+                    active={selectedTags.includes(tag)}
+                    onClick={() => handleTagToggle(tag)}
+                  >
+                    {tag}
+                  </TagFilterButton>
+                ))}
+              </TagFilterContainer>
+              
+              {selectedTags.length > 0 && (
+                <ActiveTagsInfo theme={theme}>
+                  <strong>Filtres actifs :</strong> {selectedTags.join(', ')}
+                  <br />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedTags([]);
+                      setTimeout(() => handleSearch(null, 1), 0);
+                    }}
+                    style={{
+                      marginTop: '0.5rem',
+                      background: 'none',
+                      border: `1px solid ${theme.containerBorder}`,
+                      color: theme.text,
+                      borderRadius: '4px',
+                      padding: '0.3rem 0.6rem',
+                      cursor: 'pointer',
+                      fontSize: '0.8rem'
+                    }}
+                  >
+                    ✕ Effacer tous les filtres
+                  </button>
+                </ActiveTagsInfo>
+              )}
+            </TagFilterDropdown>
+          </TagFilters>
         </SearchContainer>
 
         {hasSearched && (

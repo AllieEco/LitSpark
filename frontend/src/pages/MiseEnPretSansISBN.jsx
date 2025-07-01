@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import styled from 'styled-components';
 import Logo from '../components/Logo';
 import Button from '../components/Button';
+import TagInput from '../components/TagInput';
 import { useTheme } from '../theme/ThemeContext';
 
 const Wrapper = styled.div`
@@ -282,7 +283,8 @@ export default function MiseEnPretSansISBN() {
     conditionNotes: '',
     hasAnnotations: false,
     hasHighlights: false,
-    conditionPhotos: []
+    conditionPhotos: [],
+    tags: []
   });
 
   const handleInputChange = (e, field) => {
@@ -301,6 +303,13 @@ export default function MiseEnPretSansISBN() {
         return Object.keys(newErrors).length === 0 ? null : newErrors;
       });
     }
+  };
+
+  const handleTagsChange = (newTags) => {
+    setBookData(prev => ({
+      ...prev,
+      tags: newTags
+    }));
   };
 
   const handleCoverImageChange = (e) => {
@@ -408,7 +417,8 @@ export default function MiseEnPretSansISBN() {
               default: return 'Bon';
             }
           })(),
-          imageUrl: bookData.imageUrl || ''
+          imageUrl: bookData.imageUrl || '',
+          tags: bookData.tags || []
         };
 
         const response = await fetch('http://localhost:5000/api/livres', {
@@ -438,7 +448,8 @@ export default function MiseEnPretSansISBN() {
             hasHighlights: false,
             hasDamages: false,
             imageUrl: '',
-            conditionPhotos: []
+            conditionPhotos: [],
+            tags: []
           });
         } else {
           try {
@@ -554,6 +565,15 @@ export default function MiseEnPretSansISBN() {
                   theme={theme}
                   value={bookData.description}
                   onChange={(e) => handleInputChange(e, 'description')}
+                />
+              </FormGroup>
+
+              <FormGroup>
+                <Label theme={theme}>Tags</Label>
+                <TagInput
+                  tags={bookData.tags}
+                  onChange={handleTagsChange}
+                  theme={theme}
                 />
               </FormGroup>
 

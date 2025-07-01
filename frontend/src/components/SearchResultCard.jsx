@@ -303,6 +303,9 @@ export default function SearchResultCard({ book, onClick }) {
           {book.anneePublication && <BookTag theme={theme}>📅 {book.anneePublication}</BookTag>}
           {book.etat && <BookTag theme={theme}>⭐ {book.etat}</BookTag>}
           {book.isbn && <BookTag theme={theme}>🔢 ISBN</BookTag>}
+          {book.tags && book.tags.map((tag, index) => (
+            <BookTag key={index} theme={theme}>🏷️ {tag}</BookTag>
+          ))}
         </BookDetails>
 
         {book.resume && (

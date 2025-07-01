@@ -522,7 +522,8 @@ app.get('/api/livres/recherche', async (req, res) => {
         { isbn: { $regex: term, $options: 'i' } },
         { editeur: { $regex: term, $options: 'i' } },
         { genre: { $regex: term, $options: 'i' } },
-        { resume: { $regex: term, $options: 'i' } }
+        { resume: { $regex: term, $options: 'i' } },
+        { tags: { $in: [new RegExp(term, 'i')] } }
       ]
     }));
     
@@ -675,12 +676,13 @@ app.post('/api/livres', async (req, res) => {
   }
   
   try {
-    const { titre, auteur, isbn, editeur, anneePublication, genre, nombrePages, resume, etat, imageUrl } = req.body;
+    const { titre, auteur, isbn, editeur, anneePublication, genre, nombrePages, resume, etat, imageUrl, tags } = req.body;
     
     console.log('Données reçues pour le livre:', {
       titre,
       auteur,
       isbn,
+      tags: tags || [],
       imageUrl: imageUrl ? 'Image présente' : 'Pas d\'image',
       imageUrlLength: imageUrl ? imageUrl.length : 0
     });
@@ -696,6 +698,7 @@ app.post('/api/livres', async (req, res) => {
       resume,
       etat,
       imageUrl,
+      tags: tags || [],
       proprietaire: req.user._id,
       proprietaireNom: req.user.displayName || `${req.user.prenom} ${req.user.nom}` || req.user.username || 'Utilisateur'
     });

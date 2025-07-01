@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import styled from 'styled-components';
 import Logo from '../components/Logo';
 import Button from '../components/Button';
+import TagInput from '../components/TagInput';
 import { useTheme } from '../theme/ThemeContext';
 import Webcam from 'react-webcam';
 import { createWorker } from 'tesseract.js';
@@ -410,7 +411,8 @@ export default function MiseEnPretISBN() {
     conditionNotes: '',
     hasAnnotations: false,
     hasHighlights: false,
-    conditionPhotos: []
+    conditionPhotos: [],
+    tags: []
   });
 
   const handleIsbnChange = (e) => {
@@ -445,7 +447,8 @@ export default function MiseEnPretISBN() {
       conditionNotes: '',
       hasAnnotations: false,
       hasHighlights: false,
-      conditionPhotos: []
+      conditionPhotos: [],
+      tags: []
     });
 
     fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanedIsbn}`)
@@ -467,7 +470,8 @@ export default function MiseEnPretISBN() {
             conditionNotes: '',
             hasAnnotations: false,
             hasHighlights: false,
-            conditionPhotos: []
+            conditionPhotos: [],
+            tags: []
           });
           setShowForm(true);
           setError(null);
@@ -568,7 +572,8 @@ export default function MiseEnPretISBN() {
               default: return 'Bon';
             }
           })(),
-          imageUrl: bookData.imageUrl || ''
+          imageUrl: bookData.imageUrl || '',
+          tags: bookData.tags || []
         };
 
         const response = await fetch('http://localhost:5000/api/livres', {
@@ -598,7 +603,8 @@ export default function MiseEnPretISBN() {
             conditionNotes: '',
             hasAnnotations: false,
             hasHighlights: false,
-            conditionPhotos: []
+            conditionPhotos: [],
+            tags: []
           });
           setIsbn('');
           setShowForm(false);
@@ -626,6 +632,13 @@ export default function MiseEnPretISBN() {
     setBookData(prev => ({
       ...prev,
       [field]: value
+    }));
+  };
+
+  const handleTagsChange = (newTags) => {
+    setBookData(prev => ({
+      ...prev,
+      tags: newTags
     }));
   };
 
@@ -1367,6 +1380,15 @@ Conseils:
                     theme={theme}
                     value={bookData.description}
                     onChange={(e) => handleInputChange(e, 'description')}
+                  />
+                </FormGroup>
+
+                <FormGroup>
+                  <Label theme={theme}>Tags</Label>
+                  <TagInput
+                    tags={bookData.tags}
+                    onChange={handleTagsChange}
+                    theme={theme}
                   />
                 </FormGroup>
 

@@ -15,6 +15,9 @@ const BookSchema = new mongoose.Schema({
   etat: { type: String, default: 'Bon' },
   imageUrl: { type: String },
   
+  // Tags pour faciliter la recherche
+  tags: [{ type: String, trim: true, lowercase: true }],
+  
   // Propriétaire
   proprietaire: { 
     type: mongoose.Schema.Types.ObjectId, 
