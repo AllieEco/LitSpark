@@ -142,3 +142,17 @@ dist
 .svelte-kit
 
 # End of https://www.toptal.com/developers/gitignore/api/node
+
+# SSL Certificates and Keys - SECURITY
+# Ignore all SSL certificates, private keys, and related files
+backend/ssl/
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+*.jks
+*.csr
+ssl/
+certificates/
